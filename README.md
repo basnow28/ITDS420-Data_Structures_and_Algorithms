@@ -1,56 +1,228 @@
 # Friend Recommendation System
 
-This is **Task 1** of a larger friend-recommendation system. It establishes the core user directory — a custom hash map storing `username → User` mappings — and a bidirectional friendship graph on top of it.
+A from-scratch implementation of a social-network friend-recommendation engine,
+built as a multi-task data-structures and algorithms project.
+No built-in `dict`, `queue`, `sort`, or `sorted` are used in any core module.
+
+---
 
 ## Directory structure
 
 ```
 friend-recommendation/
-├── main.py                      # Runnable demo of all Task 1 operations
+├── main.py                          # Runnable end-to-end demo
 ├── src/
+│   ├── models/
+│   │   └── user.py                  # User entity (username + friends list)
 │   ├── data_structures/
-│   │   ├── node.py              # Singly-linked list Node (separate chaining)
-│   │   └── hash_map.py          # CustomHashMap: the user directory
-│   └── models/
-│       └── user.py              # User entity (username + friends list)
+│   │   ├── node.py                  # Linked-list Node (hash-map chaining)
+│   │   ├── hash_map.py              # CustomHashMap — the user directory
+│   │   └── queue.py                 # Custom FIFO Queue (BFS traversal)
+│   └── algorithms/
+│       ├── recommender.py           # get_recommendations() — 2-level BFS
+│       └── sorter.py                # quicksort_desc() — Lomuto QuickSort
 └── tests/
+    ├── test_user.py
     ├── test_node.py
     ├── test_hash_map.py
-    └── test_user.py
+    ├── test_queue.py
+    ├── test_sorter.py
+    └── test_recommender.py
 ```
+
+---
 
 ## How to run
 
 ```bash
-# Demo script
+# End-to-end demo
 python main.py
 
-# Full test suite
-python -m pytest tests/
+# Full test suite (stdlib unittest)
+python -m unittest discover -s tests -v
 ```
 
-## Demo walkthrough (`main.py`)
+---
 
-`main.py` runs eight labelled sections that exercise every feature built in Task 1:
+## User directory (`CustomHashMap`)
 
-| Section | What it demonstrates |
-|---------|----------------------|
-| 1 | Create a `CustomHashMap` with `capacity=10` |
-| 2 | Insert six users; print each resolved bucket index |
-| 3 | Collision chains — `alice`, `eve`, and `frank` all hash to bucket 0 with `BASE=31`, `capacity=10`; the chain length at bucket 0 is printed |
-| 4 | Retrieve users by key, including a miss (`"nobody"`) |
-| 5 | Build a bidirectional friendship graph; connections are added symmetrically (`user_a.add_friend(b)` and `user_b.add_friend(a)`) |
-| 6 | Upsert — calling `put()` on an existing key replaces the value without changing `size` |
-| 7 | Delete `dave` and verify that `in` (`__contains__`) reflects the removal |
-| 8 | Print the final bucket layout and load factor |
+### Data structures
 
-The `print_bucket_layout()` helper traverses each bucket's linked list and prints the chain with ` → ` arrows.
+| Component | File | Role |
+|-----------|------|------|
+| `User` | `src/models/user.py` | Domain entity: stores `username` and a `friends: list[str]` |
+| `Node` | `src/data_structures/node.py` | Singly-linked list node; holds `key`, `value`, `next` |
+| `CustomHashMap` | `src/data_structures/hash_map.py` | Fixed-capacity hash map; array of `Node` chain heads |
 
-## Architecture overview
+### Hash function — Horner's method
 
-The project is split into two concerns:
+```
+hash = 0
+for each character c in key:
+    hash = hash × 31 + ord(c)
+index = hash % capacity
+```
 
-- **Infrastructure** (`src/data_structures/`) — the hash map and its node building block. Deliberately implemented with a plain Python `list`, not a `dict`, as a data-structures exercise.
-- **Domain** (`src/models/`) — the `User` entity that the hash map stores.
+Base `31` is a small prime used by Java's `String.hashCode()`.
+Horner's method avoids computing `31^i` (exponential growth) by
+accumulating one multiply-and-add per character — O(len(key)) total.
 
-Future tasks will add BFS/DFS graph traversal over the friendship edges for friend-of-friend recommendations, and potentially hash map resizing/rehashing.
+### Collision resolution — Separate Chaining
+
+When two keys map to the same bucket index, the new `Node` is **prepended**
+at the bucket head (O(1)). Retrieval walks the chain comparing keys.
+
+```
+bucket[0] → Node("frank") → Node("eve") → Node("alice") → None
+```
+
+### Load factor
+
+```
+λ = size / capacity
+```
+
+| λ range | Effect |
+|---------|--------|
+| 0 – 0.75 | Short chains; get/put average **O(1)** |
+| 0.75 – 1.0 | Chains lengthen; performance degrades |
+| > 1.0 | Guaranteed collisions; approaches **O(n)** worst case |
+
+---
+
+## Recommendation engine
+
+### Queue (`src/data_structures/queue.py`)
+
+A generic FIFO Queue backed by a singly-linked list.
+
+```
+enqueue end (TAIL)                   dequeue end (HEAD)
+      ↓                                     ↓
+  [henry] ← [grace] ← [frank] ← [eve] ← HEAD
+```
+
+| Operation | Time complexity | Notes |
+|-----------|----------------|-------|
+| `enqueue` | O(1) | Tail pointer avoids traversal |
+| `dequeue` | O(1) | Advance head pointer one step |
+| `peek`    | O(1) | Read head data without removal |
+| `is_empty`| O(1) | |
+
+`list.pop(0)` would be O(n) — the linked list implementation avoids that.
+
+### Friend recommendation — 2-level BFS (`src/algorithms/recommender.py`)
+
+```
+get_recommendations(target_username, hash_map)
+```
+
+**Steps:**
+
+```
+Step 1  Look up target user.  Return [] if not found.
+
+Step 2  Enqueue all of target's direct friends → Queue
+        (these are the level-1 nodes)
+
+Step 3  While queue is not empty:
+            friend ← dequeue()
+            for each of friend's friends (fof):
+                skip if fof == target          ← filter rule 1
+                skip if fof in direct_friends  ← filter rule 2
+                candidates.append(fof)         ← duplicates intentional
+
+Step 4  Count frequencies in `candidates`:
+            dave appears 3× → 3 mutual friends
+
+Step 5  Sort with QuickSort descending → return
+```
+
+**Why duplicates encode mutual-friend count:**
+
+```
+candidates = ["dave", "eve", "dave", "frank", "dave"]
+              ↑ from bob   ↑ from carol        ↑ from frank
+
+dave.count(candidates) == 3  →  3 mutual friends
+```
+
+**Example graph and output:**
+
+```
+alice — bob, carol, dave
+bob   — alice, eve, frank
+carol — alice, eve, grace
+dave  — alice, frank, henry
+
+Recommendations for alice:
+  Rank  Username     Mutual friends
+  ────  ────────     ──────────────
+  1     eve          2  ██
+  2     frank        2  ██
+  3     grace        1  █
+  4     henry        1  █
+```
+
+### QuickSort — descending (`src/algorithms/sorter.py`)
+
+Sorts `list[tuple[str, int]]` by the integer element, highest first.
+Returns a **new list**; the original is never mutated.
+
+**Lomuto partition scheme:**
+
+The last element of the subarray is chosen as the pivot.
+A single left-to-right sweep moves elements `≥ pivot` into the left
+partition, then places the pivot at its final position.
+
+```
+Partition step (descending, subarray shown):
+
+  [("dave",1), ("charlie",3), ("eve",2)]   pivot = ("eve",2)
+
+  j=0  ("dave",1):    1 ≥ 2?  No   → skip
+  j=1  ("charlie",3): 3 ≥ 2?  Yes  → swap arr[0] ↔ arr[1]
+       → [("charlie",3), ("dave",1), ("eve",2)]
+
+  Place pivot: swap arr[i+1]=arr[1] ↔ arr[high]=arr[2]
+       → [("charlie",3), ("eve",2), ("dave",1)]   ← sorted ✓
+```
+
+**Complexity:**
+
+| Case | Time | Notes |
+|------|------|-------|
+| Average | O(n log n) | Pivot splits array roughly in half |
+| Worst | O(n²) | Pivot is always min or max (already-sorted input) |
+| Space | O(log n) | Recursion stack depth |
+
+The worst case is unlikely in practice because recommendation lists are
+small and arrive in an arbitrary order.
+
+---
+
+## Architecture
+
+```
+         ┌──────────────┐
+         │   main.py    │  orchestration / demo
+         └──────┬───────┘
+                │ uses
+     ┌──────────┴──────────┐
+     │  src/algorithms/    │
+     │  recommender.py     │  2-level BFS  →  QuickSort
+     │  sorter.py          │
+     └──────────┬──────────┘
+                │ uses
+     ┌──────────┴──────────────────┐
+     │  src/data_structures/       │
+     │  hash_map.py  (directory)   │
+     │  queue.py     (BFS engine)  │
+     │  node.py      (chaining)    │
+     └──────────┬──────────────────┘
+                │ stores
+     ┌──────────┴──────────┐
+     │  src/models/        │
+     │  user.py            │
+     └─────────────────────┘
+```

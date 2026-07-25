@@ -1,6 +1,6 @@
 # tests
 
-Unit tests for all components of the friend-recommendation system (Task 1). Each file maps directly to one source module.
+Unit tests for all components of the friend-recommendation system. Each file maps directly to one source module.
 
 ## Files
 
