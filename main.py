@@ -1,5 +1,6 @@
 from src.models.user import User
 from src.data_structures.hash_map import CustomHashMap
+from src.algorithms.recommender import get_recommendations
 
 
 def separator(title: str) -> None:
@@ -96,6 +97,55 @@ def main() -> None:
     print(f"  Size     : {len(directory)}")
     print(f"  Load (λ) : {directory.load_factor:.2f}")
     print_bucket_layout(directory)
+
+    # ── Rebuild a clean graph for the recommendation demo ─────────
+    separator("9. Rebuild graph for friend-recommendation demo")
+    rec_dir = CustomHashMap(capacity=17)
+    members = ["alice", "bob", "carol", "dave", "eve", "frank", "grace", "henry"]
+    for name in members:
+        rec_dir.put(name, User(name))
+
+    def connect(a: str, b: str) -> None:
+        rec_dir.get(a).add_friend(b)
+        rec_dir.get(b).add_friend(a)
+
+    connect("alice", "bob")
+    connect("alice", "carol")
+    connect("alice", "dave")
+    connect("bob",   "eve")
+    connect("bob",   "frank")
+    connect("carol", "eve")
+    connect("carol", "grace")
+    connect("dave",  "frank")
+    connect("dave",  "henry")
+
+    print("  Friendship graph:")
+    for name in members:
+        u = rec_dir.get(name)
+        print(f"    {u.username:8} → {u.friends}")
+
+    separator("10. Run get_recommendations() for 'alice'")
+    print("  2-level BFS via custom Queue:")
+    print("    Level 1 (direct friends) : bob, carol, dave")
+    print("    Level 2 (friends-of-friends, filtered):")
+    print("      from bob   → eve, frank")
+    print("      from carol → eve, grace")
+    print("      from dave  → frank, henry")
+    print()
+
+    recommendations = get_recommendations("alice", rec_dir)
+    print("  Ranked recommendations (QuickSort descending by mutual friends):")
+    print(f"  {'Rank':<6} {'Username':<12} {'Mutual friends'}")
+    print(f"  {'────':<6} {'────────':<12} {'──────────────'}")
+    for rank, (username, mutual_count) in enumerate(recommendations, start=1):
+        bar = "█" * mutual_count
+        print(f"  {rank:<6} {username:<12} {mutual_count}  {bar}")
+
+    separator("11. Verify recommendations for other users")
+    for target in ["bob", "carol", "eve"]:
+        recs = get_recommendations(target, rec_dir)
+        names_and_scores = [(n, c) for n, c in recs]
+        print(f"  {target:8} → {names_and_scores}")
 
 
 if __name__ == "__main__":
